@@ -1,0 +1,354 @@
+const { Op } = require('sequelize');
+const { failedRes, successRes } = require('../helpers/response.helper');
+const { fetchUserByEmail, fetchUserByPhone, currentTimeStamp, generateReferralCode, generateOTP } = require('../helpers/user.helper');
+var bcrypt = require("bcryptjs");
+var jwt = require("jsonwebtoken");
+const { jwtExpiration, jwtsecret } = require('../config/app.config');
+const { UserLogin, User, OtpUser } = require('../models');
+
+
+function validateEmail(email) {
+    const re = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+    return re.test(email);
+}
+
+
+const accessToken = (payload) => {
+    var token = jwt.sign(payload, jwtsecret, {
+      expiresIn: jwtExpiration,
+    });
+    return token;
+};
+
+
+const resend_otp = async (req,res) => {
+    const {username} = req.body;
+    var email=false;
+    var phone=false;
+    if(validateEmail(username)){
+        email=true;
+    }else{
+        phone=true;;
+    }
+
+    const checkotpalreadysent = await checkIfOtpAlreadySent(username);
+    if(checkotpalreadysent){
+        res.json(successRes("OTP sent succesfully", checkotpalreadysent));
+    }else{
+        res.json(failedRes("something went wrong", checkotpalreadysent))
+    }
+
+}
+
+const checkIfOtpAlreadySent = async (phone,role='customer') =>await OtpUser.findOne({where:{
+    [Op.or]:[
+        {
+            phone:phone
+        },
+        {
+            email:phone
+        }
+
+    ],role:role}})
+
+
+const otp_destroy = async (phone) => {
+    return OtpUser.destroy({
+        where: {
+          role: 'customer',
+          [Op.or]:[
+                {
+                    phone:phone
+                },
+                {
+                    email:phone
+                }
+
+            ]
+        },
+    })
+}
+
+const user_signup_otp = async (req,res) => {
+
+    const {name,email,phone,referral_code,password} = req.body;
+    var checkifExistsUser;
+    if(email){
+        checkifExistsUser = await fetchUserByEmail(email,'customer')
+        if(checkifExistsUser){
+            return res.json(failedRes('Email address already exists',checkifExistsUser))
+        }
+    }
+    const checkIfphoneExists = await fetchUserByPhone(phone,'customer');
+    if(checkIfphoneExists){
+        return res.json(failedRes('Phone number already exists',checkIfphoneExists))
+    }else{
+        if(referral_code){
+            const checkreferralUser = await User.scope(['active']).findOne({where:{
+                referral_code:referral_code
+            }})
+            if(!checkreferralUser){
+                return res.json(failedRes('Referral code not found, Please try with other referral code'))
+            }
+        }
+        const otp = generateOTP();
+        const dateTime = currentTimeStamp();
+        console.log('datetime',dateTime);
+        const checksentotp =await checkIfOtpAlreadySent(phone);
+        const storedata = {
+            name,
+            email,
+            phone: phone,
+            phone_verified: 1,
+            otp: otp,
+            role: 'customer',
+            referral_from:referral_code,
+            created_at: dateTime,
+            updated_at: dateTime,
+            password:password
+          };
+          if(checksentotp){
+            await OtpUser.update(storedata,{
+                where:{
+                    id:checksentotp.id
+                }
+            })
+            .then((r) => res.json(successRes("OTP sent succesfully", checksentotp)))
+                .catch((err) => res.json(failedRes("Something went wrong", err)));
+          }else{
+            await OtpUser.create(storedata)
+                .then((r) => res.json(successRes("OTP sent succesfully", r)))
+                .catch((err) => res.json(failedRes("Something went wrong", err)));
+          }
+
+    }
+
+}
+
+const user_signup_verify = async (req,res) => {
+    const {id,otp,device_id,device_type,device_token,model_name} = req.body;
+    const otpuser = await OtpUser.findOne({
+        where:{id:id,otp:otp},
+        order:[['id','desc']]
+    });
+    if(!otpuser){
+        res.json(failedRes('Invalid OTP',otpuser));
+    }else{
+        const phone = otpuser.phone;
+        const email = otpuser.email;
+        if(email){
+            checkifExistsUser = await fetchUserByEmail(email,'customer')
+            if(checkifExistsUser){
+                return res.json(failedRes('Email address already exists',checkifExistsUser))
+            }
+        }
+        if(phone){
+            const checkIfphoneExists = await fetchUserByPhone(phone,'customer');
+            if(checkIfphoneExists){
+                return res.json(failedRes('Phone number already exists',checkIfphoneExists))
+            }else{
+                var hashedPassword = bcrypt.hashSync(otpuser.password, 8);
+                const dateTime = currentTimeStamp();
+                const rfcode= await generateReferralCode();
+
+                const storeData = {
+                    name:otpuser.name,
+                    email:otpuser.email,
+                    phone:phone,
+                    password:hashedPassword,
+                    referral_code:rfcode,
+                    referral_from:otpuser.referral_from,
+                    auth:'normal',
+                    status:1,
+                    email_verified_at: otpuser.email_verified == 1 ? dateTime : "",
+                    phone_verified_at: otpuser.phone_verified == 1 ? dateTime : "",
+                    created_at:dateTime,
+                    updated_at:dateTime
+                }
+
+                const createuser = await User.create(storeData);
+                if(createuser){
+                    const storeData2 = {
+                        user_id:createuser.id,
+                        device_id: device_id,
+                        device_type: device_type,
+                        device_token: device_token,
+                        model_name,
+                        created_at: dateTime,
+                        updated_at: dateTime,
+                    };
+
+                    await UserLogin.create(storeData2);
+                    await otp_destroy(phone)
+                    var token = accessToken({ id: createuser.id });
+                    res.json(successRes("Verified", createuser, token));
+                }
+
+
+            }
+        }else{
+            res.json(failedRes('failed'));
+        }
+    }
+}
+
+
+const forgot_otp = async (req,res) => {
+    const {username} = req.body;
+
+    var checkifExistsUser=0;
+    var email=false;
+    var phone=false;
+    var type='';
+    if(validateEmail(username)){
+        email=true;
+        type='email';
+        checkifExistsUser = await fetchUserByEmail(username,'customer')
+    }else{
+        phone=true;;
+        type='phone';
+        checkifExistsUser = await fetchUserByPhone(username,'customer');
+    }
+
+    if(checkifExistsUser){
+        const otp = generateOTP();
+        const dateTime = currentTimeStamp();
+
+        const checksentotp =await checkIfOtpAlreadySent(phone);
+        const storedata = {
+            name:'',
+            email:email?username:'',
+            phone: phone?username:'',
+            phone_verified: phone?1:0,
+            email_verified:email?1:0,
+            otp: otp,
+            role: 'customer',
+            created_at: dateTime,
+            updated_at: dateTime,
+        };
+
+
+        if(checksentotp){
+            await OtpUser.update(storedata,{
+                where:{
+                    id:checksentotp.id
+                }
+            })
+            .then((r) => res.json(successRes("OTP sent succesfully on "+type, checksentotp)))
+                .catch((err) => res.json(failedRes("Something went wrong", err)));
+        }else{
+            await OtpUser.create(storedata)
+            .then((r) => res.json(successRes("OTP sent succesfully on "+type, r)))
+            .catch((err) => res.json(failedRes("Something went wrong", err)));
+        }
+    }
+}
+
+const forgot_verify = async (req,res) => {
+    const {id,otp,password,confirm_password} = req.body;
+    var checkifExistsUser=0;
+    var email=false;
+    var phone=false;
+    const otpuser =await OtpUser.findOne({
+        where:{id:id,otp:otp},
+        order:[['id','desc']]
+    })
+
+    if(otpuser){
+        var username;
+        if(otpuser.email_verified){
+            username=otpuser.email
+        }else{
+            username=otpuser.phone;
+        }
+        if(validateEmail(username)){
+            email=true;
+            checkifExistsUser = await fetchUserByEmail(username,'customer')
+        }else{
+            phone=true;;
+            checkifExistsUser = await fetchUserByPhone(username,'customer');
+        }
+
+        var hashedPassword = bcrypt.hashSync(password, 8);
+        const dateTime = currentTimeStamp();
+        if(checkifExistsUser){
+            var email_verified_at = null;
+            if(otpuser.email_verified){
+                email_verified_at=dateTime;
+            }
+            const updateData = {
+                password:hashedPassword,
+                email_verified_at: email_verified_at,
+                updated_at:dateTime
+            }
+            await User.update(updateData,{
+                where:{id:checkifExistsUser.id}
+            })
+            await otp_destroy(username)
+
+
+            res.json(successRes('password changed successfully'))
+        }else{
+            res.json(failedRes('user not found'))
+        }
+
+
+    }else{
+        res.json(failedRes('Invalid OTP!'))
+    }
+}
+
+const user_login = async (req,res) => {
+    // const {username,password}=req.body;
+    const {username,password,device_id,device_type,device_token} = req.body;
+
+    var checkifExistsUser=0;
+    if(validateEmail(username)){
+        checkifExistsUser = await fetchUserByEmail(username,'customer')
+    }else{
+        checkifExistsUser = await fetchUserByPhone(username,'customer');
+    }
+
+    if(checkifExistsUser){
+        if(checkifExistsUser.status==1){
+
+            const dateTime =await currentTimeStamp();
+            const storeData = {
+                user_id:checkifExistsUser.id,
+                device_id: device_id,
+                device_type: device_type,
+                device_token: device_token,
+                created_at: dateTime,
+                updated_at: dateTime,
+            };
+            const verified = bcrypt.compareSync(password, checkifExistsUser.password);
+            if (verified) {
+                await UserLogin.create(storeData)
+                var token = accessToken({ id: checkifExistsUser.id });
+                res.json(successRes("Verified", checkifExistsUser, token));
+            }else{
+                res.json(failedRes('Invalid Password'))
+            }
+
+        }else{
+            res.json(failedRes('Your account is not active, Please contact to admin support !!'))
+        }
+    }else{
+        res.json(failedRes('User Not Found'))
+    }
+}
+
+const user_profile = async (req,res) => {
+    res.json(successRes('fetched',req.body.user))
+}
+
+
+module.exports={
+    user_signup_otp,
+    user_signup_verify,
+    user_login,
+    resend_otp,
+    forgot_otp,
+    forgot_verify,
+    user_profile
+}

@@ -1,0 +1,95 @@
+/**import packages */
+process.env.TZ = 'Asia/Calcutta'
+const express=require('express');
+const bodyParser=require('body-parser');
+const {  ValidationError  } = require('express-validation')
+// var multer = require('multer');
+// var upload = multer();
+
+
+const moment = require('moment');
+
+
+const cors=require('cors');
+
+/**intialize express server app */
+const app=express();
+
+// process.env.TZ = 'Asia/Kolkata' // here is the magical line
+
+
+
+console.log('CURRENT',moment().format('YYYY-MM-DD HH:mm:ss'));
+
+// console.log('current date',(new Date()));
+
+// var corsOptions = {
+//     //origin: "http://localhost:8081"
+// };
+app.use(cors());
+
+/**create again table */
+//db.sequelize.sync();
+// db.sequelize.sync({ force: true }).then(() => {
+//     console.log("Drop and re-sync db.");
+// });
+
+/**parse requests as application/json */
+app.use(bodyParser.json());
+
+// parse requests of content-type - application/x-www-form-urlencoded
+app.use(bodyParser.urlencoded({extended:true}));
+
+
+
+// for parsing multipart/form-data
+// app.use(upload.array());
+// app.use(express.static('public'));
+
+
+
+/**validation error */
+app.use(function(err, req, res, next) {
+
+    if (err instanceof ValidationError) {
+    return res.status(err.statusCode).json(err)
+    // return res.json({status:false,message:err.message})
+
+    }
+
+    return res.status(500).json(err)
+})
+
+
+// process.on('unhandledRejection', function(e) {
+//    console.log(e);
+//    process. exit();
+// });
+
+
+function postTrimmer(req, res, next) {
+    if (req.method === 'POST') {
+        for (const [key, value] of Object.entries(req.body)) {
+            req.body[key] = Number.isNaN() ? value.trim() : value;
+        }
+    }
+    next();
+}
+
+app.use(postTrimmer);
+
+
+// simple route
+app.get("/", (req, res) => {
+    res.json({ 'headers' : req.headers,message: "Welcome to application." });
+});
+
+
+require("./app/routes/main.routes")(app);
+
+
+/**set port, listen requests */
+const PORT=process.env.PORT || 3030;
+app.listen(PORT,()=>{
+    console.log(`Server is running on port ${PORT}.`);
+})
