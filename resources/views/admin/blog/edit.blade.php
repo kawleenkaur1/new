@@ -1,6 +1,6 @@
 @extends('admin.layouts.main')
 @section('content')
-<form method="POST" action="{{route('update',['id'=>$post->id])}}" enctype="multipart/form-data>
+<form method="POST" action="{{route('update',['id'=>$post->id])}}" enctype="multipart/form-data">
     @csrf
     <div class="mb-3">
         <label><b>Title</b></label>

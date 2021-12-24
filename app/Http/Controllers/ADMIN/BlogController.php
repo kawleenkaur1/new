@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\ADMIN;
 use App\Http\Controllers\Controller;
-
+use App\Models\Category;
 use Illuminate\Http\Request;
 use App\Models\Blog;
 use Illuminate\Support\Facades\Redirect;
@@ -10,8 +10,8 @@ class BlogController extends Controller
 {
     
     public function index()
-    {
-        return view("admin.blog.add");
+    { $cat=Category::all();
+        return view("admin.blog.add",['cat'=>$cat]);
     }
 
     public function store(Request $request)
@@ -22,7 +22,7 @@ class BlogController extends Controller
         $request->image->move(public_path('uploads/blogs'), $imageName);
         $post->image = $imageName;
         $post->description=$request->get('description');
-        $post->difficulty=$request->get('catagory_id');
+        $post->catagory_id=$request->get('catagory_id');
         $post->status=$request->get('status');
        
         $post->save();

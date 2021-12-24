@@ -26,6 +26,8 @@ use App\Http\Controllers\ADMIN\UserController;
 use App\Http\Controllers\ADMIN\WarehouseController;
 use App\Http\Controllers\ADMIN\CollaboratesController;
 use App\Http\Controllers\ADMIN\CareersController;
+use App\Http\Controllers\ADMIN\InstafeedController;
+
 
 
 
@@ -392,6 +394,7 @@ Route::any('pending_order',[OrderController::class, 'pending_order'])->name('pen
 Route::any('order_delivered',[OrderController::class, 'order_delivered'])->name('order_delivered');
 
 /**blog */
+Route::get('/',[BlogController::class,'index'])->name('store');
 Route::post('store',[BlogController::class,'store'])->name('store');
 Route::get('show',[BlogController::class,'show'])->name('show');
 Route::get('delete/{id}',[BlogController::class,'destroy'])->name('delete');
@@ -399,7 +402,17 @@ Route::get('edit/{id}',[BlogController::class,'edit'])->name('edit');
 Route::post('update/{id}',[BlogController::class,'update'])->name('update');
 
 
+/**insta_feed */
+Route::get('index_instafeed',[InstafeedController::class,'index_instafeed'])->name('index_instafeed');
+Route::post('store_instafeed',[InstafeedController::class,'store_instafeed'])->name('store_instafeed');
+Route::get('show_instafeed',[InstafeedController::class,'show_instafeed'])->name('show_instafeed');
+Route::get('delete_instafeed/{id}',[InstafeedController::class,'destroy_instafeed'])->name('delete_instafeed');
+Route::get('edit_instafeed/{id}',[InstafeedController::class,'edit_instafeed'])->name('edit_instafeed');
+Route::post('update_instafeed/{id}',[InstafeedController::class,'update_instafeed'])->name('update_instafeed');
+
 });
+
+
 
 // Route::get('/', function () {
 //     return view('welcome');
